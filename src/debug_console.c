@@ -33,6 +33,86 @@ static void append_hex(char*out,uint32_t*used,const uint8_t*value,uint32_t lengt
  }
 }
 
+static void append_hex32(char*out,uint32_t*used,uint32_t value){
+ static const char digits[]="0123456789abcdef";
+ for(int shift=28;shift>=0;shift-=4)out[(*used)++]=digits[(value>>shift)&15u];
+}
+
+static uint32_t read_le32(const uint8_t*bytes){
+ return (uint32_t)bytes[0]|((uint32_t)bytes[1]<<8)|
+        ((uint32_t)bytes[2]<<16)|((uint32_t)bytes[3]<<24);
+}
+
+static void print_dump_raw_record(const char*label,uint32_t address,
+                                  const uint8_t*record){
+ char line[80];uint32_t used;
+ log_puts(label);log_puts(" address=0x");
+ used=0;append_hex32(line,&used,address);line[used]=0;log_puts(line);log_puts("\r\n");
+ for(uint32_t offset=0;offset<144;offset+=16){
+  used=0;append_hex32(line,&used,address+offset);
+  append_text(line,&used," +");append_hex32(line,&used,offset);
+  append_text(line,&used,": ");
+  append_hex(line,&used,record+offset,16);append_text(line,&used,"\r\n");
+  line[used]=0;log_puts(line);
+ }
+}
+
+static void print_dump_raw(const credential_dump*dump){
+ print_dump_raw_record("Credential record",dump->address,dump->record);
+ if(dump->has_resident)
+  print_dump_raw_record("Resident record",dump->resident_address,dump->resident_record);
+ else log_puts("Resident record: none found\r\n");
+}
+
+static void print_dump_field(const char*label,const uint8_t*data,uint32_t length){
+ char line[160];uint32_t used=0;
+ append_text(line,&used,label);append_hex(line,&used,data,length);
+ line[used]=0;log_puts(line);log_puts("\r\n");
+}
+
+static void print_dump_formatted(const credential_dump*dump){
+ const uint8_t*record=dump->record;
+ uint32_t magic=read_le32(record),sequence=read_le32(record+4);
+ log_puts("Credential record at 0x");
+ char line[80];uint32_t used=0;append_hex32(line,&used,dump->address);
+ line[used]=0;log_puts(line);log_puts("\r\n");
+ log_puts(magic==0x32444946u?" type=active\r\n":
+          magic==0x33444946u?" type=deleted tombstone\r\n":" type=invalid\r\n");
+ used=0;append_text(line,&used,"sequence=0x");append_hex32(line,&used,sequence);
+ append_text(line,&used,(sequence&0x80000000u)?" (resident-linked)\r\n":" (ordinary)\r\n");
+ line[used]=0;log_puts(line);
+ print_dump_field("credential_id=",record+8,32);
+ print_dump_field("rp_id_sha256=",record+40,32);
+ print_dump_field("private_scalar=",record+72,32);
+ used=0;append_text(line,&used,"counter=");append_u32(line,&used,read_le32(record+104));
+ append_text(line,&used," digest_valid=");
+ append_text(line,&used,dump->record_valid?"yes\r\n":"no\r\n");
+ line[used]=0;log_puts(line);
+ print_dump_field("stored_record_digest=",record+108,32);
+ used=0;append_text(line,&used,"commit=0x");append_hex32(line,&used,read_le32(record+140));
+ append_text(line,&used,"\r\n");line[used]=0;log_puts(line);
+ if(!dump->has_resident){log_puts("resident_record=none found\r\n");return;}
+ const uint8_t*resident=dump->resident_record;
+ used=0;append_text(line,&used,"resident_record_address=0x");
+ append_hex32(line,&used,dump->resident_address);append_text(line,&used,"\r\n");
+ line[used]=0;log_puts(line);
+ used=0;append_text(line,&used,"resident_magic=0x");
+ append_hex32(line,&used,read_le32(resident));append_text(line,&used," sequence=");
+ append_u32(line,&used,read_le32(resident+4));append_text(line,&used,"\r\n");
+ line[used]=0;log_puts(line);
+ uint32_t user_id_len=read_le32(resident+104);
+ used=0;append_text(line,&used,"user_id_length=");append_u32(line,&used,user_id_len);
+ append_text(line,&used," resident_digest_valid=");
+ append_text(line,&used,dump->resident_valid?"yes\r\n":"no\r\n");
+ line[used]=0;log_puts(line);
+ if(user_id_len<=64)print_dump_field("user_handle=",resident+40,user_id_len);
+ else log_puts("user_handle=invalid length\r\n");
+ print_dump_field("stored_resident_digest=",resident+108,32);
+ used=0;append_text(line,&used,"resident_commit=0x");
+ append_hex32(line,&used,read_le32(resident+140));append_text(line,&used,"\r\n");
+ line[used]=0;log_puts(line);
+}
+
 static void print_key(uint32_t index){
  credential_summary key;char line[112];uint32_t used=0;
  if(!credential_list_get(index,&key))return;
@@ -90,6 +170,8 @@ static const char*command_name(const char*text){
  if(!strcmp(text,"help"))return "help";
  if(!strcmp(text,"status"))return "status";
  if(!strcmp(text,"keys list"))return "keys list";
+ if(!strncmp(text,"keys dump raw ",14))return "keys dump raw";
+ if(!strncmp(text,"keys dump formatted ",20))return "keys dump formatted";
  if(!strcmp(text,"keys erase-all confirm"))return "keys erase-all";
  if(!strcmp(text,"keys compact confirm"))return "keys compact";
  if(!strcmp(text,"pin status"))return "pin status";
@@ -112,6 +194,9 @@ static void execute_command(void){
   log_puts("help\r\nstatus\r\nkeys list\r\n");
   log_puts("keys delete <id8> <rp8>\r\nkeys undelete <id8> <rp8>\r\n");
   log_puts("keys discoverable <id8> <rp8> on|off\r\n");
+  log_puts("keys dump raw <id8> <rp8>\r\nkeys dump formatted <id8> <rp8>\r\n");
+  log_puts("keys dump raw <id8> <rp8>\r\n");
+  log_puts("keys dump formatted <id8> <rp8>\r\n");
   log_puts("keys erase-all confirm\r\nkeys compact confirm\r\n");
   log_puts("pin status\r\npin set <4-63 digits>\r\n");
   log_puts("pin change <old> <new>\r\npin delete confirm\r\n");
@@ -160,6 +245,24 @@ static void execute_command(void){
    append_text(line,&used,"Credential records: ");append_u32(line,&used,list_count);
    append_text(line,&used,"; id/rp are 4-byte fingerprints\r\n");
    line[used]=0;log_puts(line);
+  }
+ }else if(command_length>20&&!memcmp(command,"keys dump formatted ",20)){
+  uint8_t id[4],rp[4];const char*tail;
+  if(!parse_selector(command+20,id,rp,&tail)||*tail)
+   log_puts("ERR use keys dump formatted <id8> <rp8>\r\n");
+  else{
+   credential_dump dump;credential_result result=credential_dump_lookup(id,rp,&dump);
+   if(result!=CREDENTIAL_OK)report_credential_result(result);
+   else print_dump_formatted(&dump);
+  }
+ }else if(command_length>14&&!memcmp(command,"keys dump raw ",14)){
+  uint8_t id[4],rp[4];const char*tail;
+  if(!parse_selector(command+14,id,rp,&tail)||*tail)
+   log_puts("ERR use keys dump raw <id8> <rp8>\r\n");
+  else{
+   credential_dump dump;credential_result result=credential_dump_lookup(id,rp,&dump);
+   if(result!=CREDENTIAL_OK)report_credential_result(result);
+   else print_dump_raw(&dump);
   }
  }else if(!strcmp(command,"keys erase-all confirm")){
   if(credential_erase_all())log_puts("All credentials erased; PIN unchanged\r\n");

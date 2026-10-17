@@ -46,8 +46,8 @@ for FIDO2 operation.
   hexadecimal, named keepalive states, console command categories and flash
   operation addresses/status registers. Dumps may contain credential IDs,
   user data, challenges and PIN-protocol ciphertext.
-- CDC debug console commands for listing, deleting, restoring, changing the
-  discoverability of and compacting credentials, plus PIN setup/change/delete.
+- CDC console commands for listing, raw/formatted credential dumps, deleting,
+  restoring, changing discoverability, compaction and PIN setup/change/delete.
 - Append-only flash credentials and monotonically increasing per-credential
   assertion counters; commit/checksum validation on load.
 
@@ -72,7 +72,8 @@ DTR enabled. The baud setting is metadata for USB CDC.
 The CDC console accepts CR/LF-terminated `help`, `status`, `keys list`,
 `keys delete <id8> <rp8>`, `keys undelete <id8> <rp8>`,
 `keys discoverable <id8> <rp8> on|off`, `keys erase-all confirm`,
-`keys compact confirm`, `pin status`, `pin set <4-63 digits>`,
+`keys compact confirm`, `keys dump raw <id8> <rp8>`,
+`keys dump formatted <id8> <rp8>`, `pin status`, `pin set <4-63 digits>`,
 `pin change <old> <new>` and `pin delete confirm`. The `id8` and `rp8`
 arguments are the eight-hex-character ID and RP fingerprints shown by
 `keys list`; ambiguous fingerprint pairs are rejected. Set the PIN before
@@ -81,7 +82,15 @@ User presence still requires the blue button. Key listing shows only short
 credential-ID/RP-hash fingerprints, assertion counters, and discoverable status;
 it never outputs private keys or user handles. The serial watcher masks the PIN
 on screen and excludes commands typed by the user from the capture file. The
-protocol dump does not include the plaintext PIN or private credential keys.
+CTAPHID protocol dump does not include the plaintext PIN or private credential
+keys. In contrast, `keys dump raw` and `keys dump formatted` intentionally
+expose credential private scalars and stored user handles for inspection; the
+COM4 watcher captures this output, so use test credentials and protect any
+resulting log files.
+Raw output prints exact 144-byte flash records with absolute addresses and
+offsets. Formatted output decodes the credential ID, RP hash, 32-byte
+big-endian private scalar, counter, stored digest and commit marker; it also
+shows a matching resident record and user handle when one is present.
 Console logs identify commands by category without recording PIN arguments;
 flash logs report operation ranges and controller status without logging
 programmed data.

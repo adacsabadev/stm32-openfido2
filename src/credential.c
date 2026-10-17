@@ -422,6 +422,35 @@ credential_result credential_set_discoverable(const uint8_t id_prefix[4],
  return append_record(&current,MAGIC);
 }
 
+credential_result credential_dump_lookup(const uint8_t id_prefix[4],
+                                         const uint8_t rp_prefix[4],
+                                         credential_dump*out){
+ if(!out||!credential_storage_init())return CREDENTIAL_FLASH_ERROR;
+ credential current;uintptr_t address=0;
+ credential_result result=find_current(id_prefix,rp_prefix,false,&current,&address);
+ if(result==CREDENTIAL_NOT_FOUND)
+  result=find_current(id_prefix,rp_prefix,true,&current,&address);
+ if(result!=CREDENTIAL_OK)return result;
+ memset(out,0,sizeof *out);
+ out->address=(uint32_t)address;
+ memcpy(out->record,(const void*)address,sizeof out->record);
+ out->record_valid=record_valid((const credential*)out->record);
+ const resident_record*latest=0;uintptr_t resident_address=0;
+ for(uintptr_t p=START;p+sizeof(resident_record)<=END;p+=sizeof(resident_record)){
+  const resident_record*r=(const resident_record*)p;
+  if(resident_valid(r)&&!memcmp(current.id,r->id,sizeof current.id)){
+   latest=r;resident_address=p;
+  }
+ }
+ if(latest){
+  out->has_resident=true;
+  out->resident_address=(uint32_t)resident_address;
+  memcpy(out->resident_record,latest,sizeof out->resident_record);
+  out->resident_valid=resident_valid((const resident_record*)out->resident_record);
+ }
+ return CREDENTIAL_OK;
+}
+
 static bool compact_write_credential(uintptr_t address,credential*c){
  c->commit=COMMIT;crypto_hash(c,offsetof(credential,digest),c->digest);
  return flash_write(address,c,sizeof *c)&&record_valid((const credential*)address);

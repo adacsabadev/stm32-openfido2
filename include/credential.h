@@ -25,6 +25,11 @@ typedef enum {
 typedef struct {
  uint32_t active,deleted,used_slots,free_slots;
 } credential_journal_stats;
+typedef struct {
+ uint32_t address,resident_address;
+ uint8_t record[144],resident_record[144];
+ bool has_resident,record_valid,resident_valid;
+} credential_dump;
 bool credential_storage_init(void);
 bool credential_lookup(const uint8_t id[32],const uint8_t rp[32],credential*out);
 bool credential_lookup_resident(const uint8_t rp[32],credential*out,
@@ -39,6 +44,9 @@ credential_result credential_delete(const uint8_t id_prefix[4],const uint8_t rp_
 credential_result credential_undelete(const uint8_t id_prefix[4],const uint8_t rp_prefix[4]);
 credential_result credential_set_discoverable(const uint8_t id_prefix[4],
                                               const uint8_t rp_prefix[4],bool enabled);
+credential_result credential_dump_lookup(const uint8_t id_prefix[4],
+                                         const uint8_t rp_prefix[4],
+                                         credential_dump*out);
 bool credential_erase_all(void);
 bool credential_compact(void);
 int crypto_random(void *ctx,uint8_t*out,size_t n);

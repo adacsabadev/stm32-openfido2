@@ -330,6 +330,19 @@ assert call("credential_set_discoverable",0x20014300,0x20014304,0)==0
 assert call("credential_lookup_resident",0x20014820,0x20014400,0x20014500,0x20014600)==0
 assert call("credential_set_discoverable",0x20014300,0x20014304,1)==0
 assert call("credential_lookup_resident",0x20014820,0x20014400,0x20014500,0x20014600)==1
+dump=0x20014b00
+assert call("credential_dump_lookup",0x20014300,0x20014304,dump)==0
+dump_data=bytes(uc.mem_read(dump,300))
+credential_address,resident_address=struct.unpack_from("<II",dump_data)
+raw_credential=dump_data[8:152]
+raw_resident=dump_data[152:296]
+assert credential_address>=0x080e0000 and resident_address>=0x080e0000
+assert raw_credential[:4]==struct.pack("<I",0x32444946)
+assert raw_credential[8:40]==cid and raw_credential[40:72]==rp_hash
+assert raw_credential[72:104]!=bytes(32)
+assert dump_data[296]==1 and dump_data[297]==1
+assert raw_resident[:4]==struct.pack("<I",0x32525346)
+assert raw_resident[40:44]==b"test" and struct.unpack_from("<I",raw_resident,104)[0]==4
 assert call("credential_set_discoverable",0x20014300,0x20014304,0)==0
 stats=0x20014700
 call("credential_get_journal_stats",stats)
@@ -356,4 +369,5 @@ uc.mem_write(0x20014a40,old_hash);uc.mem_write(0x20014a60,new_hash)
 assert call("pin_uv_check_pin_hash",0x20014a40)==0
 assert call("pin_uv_check_pin_hash",0x20014a60)==1
 assert call("pin_uv_delete")==1 and call("pin_uv_configured")==0
+print("PASS: raw credential/resident dump includes valid flash records and linked user handle")
 print("PASS: delete, undelete, discoverability toggle, compaction, erase-all, and PIN change/delete")
