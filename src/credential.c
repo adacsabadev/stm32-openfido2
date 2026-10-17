@@ -549,14 +549,25 @@ bool credential_erase_all(void){
 
 bool crypto_generate(credential*c,uint8_t x[32],uint8_t y[32]){
  mbedtls_ecdsa_context key;mbedtls_ecdsa_init(&key);
- bool ok=mbedtls_ecdsa_genkey(&key,MBEDTLS_ECP_DP_SECP256R1,crypto_random,0)==0;
- if(ok)ok=!mbedtls_mpi_write_binary(&key.d,c->secret,32)&&!mbedtls_mpi_write_binary(&key.Q.X,x,32)&&!mbedtls_mpi_write_binary(&key.Q.Y,y,32);
+ mbedtls_mpi d;mbedtls_ecp_group group;mbedtls_ecp_point q;
+ uint8_t encoded[65];size_t encoded_length=0;
+ mbedtls_mpi_init(&d);mbedtls_ecp_group_init(&group);mbedtls_ecp_point_init(&q);
+ bool ok=mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256R1,&key,crypto_random,0)==0;
+ if(ok)ok=!mbedtls_ecp_export(&key,&group,&d,&q)
+  &&!mbedtls_ecp_point_write_binary(&group,&q,MBEDTLS_ECP_PF_UNCOMPRESSED,
+                                    &encoded_length,encoded,sizeof encoded)
+  &&encoded_length==sizeof encoded
+  &&!mbedtls_mpi_write_binary(&d,c->secret,32);
+ if(ok){memcpy(x,encoded+1,32);memcpy(y,encoded+33,32);}
+ mbedtls_ecp_point_free(&q);mbedtls_ecp_group_free(&group);mbedtls_mpi_free(&d);
+ memset(encoded,0,sizeof encoded);
  mbedtls_ecdsa_free(&key);return ok;
 }
 
 bool crypto_sign(const credential*c,const uint8_t*data,size_t n,uint8_t sig[80],size_t*len){
  uint8_t hash[32];crypto_hash(data,n,hash);mbedtls_ecdsa_context key;mbedtls_ecdsa_init(&key);
- bool ok=!mbedtls_ecp_group_load(&key.grp,MBEDTLS_ECP_DP_SECP256R1)&&!mbedtls_mpi_read_binary(&key.d,c->secret,32);
- if(ok)ok=!mbedtls_ecdsa_write_signature(&key,MBEDTLS_MD_SHA256,hash,32,sig,len,crypto_random,0);
+ bool ok=!mbedtls_ecp_read_key(MBEDTLS_ECP_DP_SECP256R1,&key,c->secret,32);
+ if(ok)ok=!mbedtls_ecdsa_write_signature(&key,MBEDTLS_MD_SHA256,hash,32,
+                                         sig,80,len,crypto_random,0);
  mbedtls_ecdsa_free(&key);memset(hash,0,sizeof hash);return ok;
 }

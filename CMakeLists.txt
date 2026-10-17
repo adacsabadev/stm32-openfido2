@@ -21,6 +21,10 @@ add_executable(stm32-openfido2
   src/cbor_min.c
   src/credential.c
   vendor/mbedtls/library/bignum.c
+  vendor/mbedtls/library/bignum_core.c
+  vendor/mbedtls/library/bignum_mod.c
+  vendor/mbedtls/library/bignum_mod_raw.c
+  vendor/mbedtls/library/constant_time.c
   vendor/mbedtls/library/ecp.c
   vendor/mbedtls/library/ecp_curves.c
   vendor/mbedtls/library/ecdsa.c
@@ -28,6 +32,7 @@ add_executable(stm32-openfido2
   vendor/mbedtls/library/asn1parse.c
   vendor/mbedtls/library/sha256.c
   vendor/mbedtls/library/aes.c
+  vendor/mbedtls/library/platform_util.c
   vendor/st/hal/src/stm32f4xx_hal_flash.c
   src/usb_descriptors.c
   src/usb_composite.c
@@ -57,7 +62,12 @@ target_compile_definitions(stm32-openfido2 PRIVATE STM32F407xx USE_HAL_DRIVER)
 target_compile_definitions(stm32-openfido2 PRIVATE MBEDTLS_CONFIG_FILE="crypto_config.h")
 target_link_libraries(stm32-openfido2 c gcc)
 set_source_files_properties(
- vendor/mbedtls/library/bignum.c vendor/mbedtls/library/ecp.c
+ vendor/mbedtls/library/bignum.c
+ vendor/mbedtls/library/bignum_core.c
+ vendor/mbedtls/library/bignum_mod.c
+ vendor/mbedtls/library/bignum_mod_raw.c
+ vendor/mbedtls/library/constant_time.c
+ vendor/mbedtls/library/ecp.c
  vendor/mbedtls/library/ecp_curves.c vendor/mbedtls/library/ecdsa.c
  vendor/mbedtls/library/sha256.c PROPERTIES COMPILE_OPTIONS "-O2")
 add_custom_command(TARGET stm32-openfido2 POST_BUILD

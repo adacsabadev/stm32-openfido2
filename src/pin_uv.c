@@ -165,16 +165,20 @@ bool pin_uv_delete(void){
 bool pin_uv_get_key_agreement(uint8_t x[32],uint8_t y[32]){
  mbedtls_ecp_group group;
  mbedtls_ecp_point public_key;
+ uint8_t encoded[65];size_t encoded_length=0;
  mbedtls_ecp_group_init(&group);mbedtls_ecp_point_init(&public_key);
  if(private_key_ready){mbedtls_mpi_free(&private_key);private_key_ready=false;}
  mbedtls_mpi_init(&private_key);
  bool ok=!mbedtls_ecp_group_load(&group,MBEDTLS_ECP_DP_SECP256R1)
   &&!mbedtls_ecp_gen_keypair(&group,&private_key,&public_key,crypto_random,0)
-  &&!mbedtls_mpi_write_binary(&public_key.X,x,32)
-  &&!mbedtls_mpi_write_binary(&public_key.Y,y,32);
+  &&!mbedtls_ecp_point_write_binary(&group,&public_key,MBEDTLS_ECP_PF_UNCOMPRESSED,
+                                    &encoded_length,encoded,sizeof encoded)
+  &&encoded_length==sizeof encoded;
+ if(ok){memcpy(x,encoded+1,32);memcpy(y,encoded+33,32);}
  private_key_ready=ok;
  if(!ok)mbedtls_mpi_free(&private_key);
  mbedtls_ecp_point_free(&public_key);mbedtls_ecp_group_free(&group);
+ memset(encoded,0,sizeof encoded);
  return ok;
 }
 
@@ -183,16 +187,20 @@ bool pin_uv_derive_shared_secret(const uint8_t x[32],const uint8_t y[32],
  if(!private_key_ready)return false;
  mbedtls_ecp_group group;mbedtls_ecp_point peer,shared;
  mbedtls_ecp_group_init(&group);mbedtls_ecp_point_init(&peer);mbedtls_ecp_point_init(&shared);
- uint8_t encoded[65],secret[32];encoded[0]=4;memcpy(encoded+1,x,32);memcpy(encoded+33,y,32);
+ uint8_t encoded[65],shared_encoded[65],secret[32];size_t shared_length=0;
+ encoded[0]=4;memcpy(encoded+1,x,32);memcpy(encoded+33,y,32);
  bool ok=!mbedtls_ecp_group_load(&group,MBEDTLS_ECP_DP_SECP256R1)
   &&!mbedtls_ecp_point_read_binary(&group,&peer,encoded,sizeof encoded)
   &&!mbedtls_ecp_check_pubkey(&group,&peer)
   &&!mbedtls_ecp_mul(&group,&shared,&private_key,&peer,crypto_random,0)
-  &&!mbedtls_mpi_write_binary(&shared.X,secret,sizeof secret);
+  &&!mbedtls_ecp_point_write_binary(&group,&shared,MBEDTLS_ECP_PF_UNCOMPRESSED,
+                                    &shared_length,shared_encoded,sizeof shared_encoded)
+  &&shared_length==sizeof shared_encoded;
+ if(ok)memcpy(secret,shared_encoded+1,sizeof secret);
  if(ok)mbedtls_sha256(secret,sizeof secret,shared_secret,0);
  mbedtls_mpi_free(&private_key);private_key_ready=false;
  mbedtls_ecp_point_free(&shared);mbedtls_ecp_point_free(&peer);mbedtls_ecp_group_free(&group);
- memset(encoded,0,sizeof encoded);memset(secret,0,sizeof secret);
+ memset(encoded,0,sizeof encoded);memset(shared_encoded,0,sizeof shared_encoded);memset(secret,0,sizeof secret);
  return ok;
 }
 

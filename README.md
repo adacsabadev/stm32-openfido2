@@ -138,9 +138,9 @@ application reflashes must preserve sector 11; mass erase destroys all credentia
 
 Keys are stored in ordinary MCU flash without encryption or readout protection.
 Checksums detect incomplete/corrupt writes; they do not provide tamper resistance.
-The crypto sources are the reference project's mbedTLS 2.2.1, configured narrowly
-for P-256 and SHA-256. This old dependency needs replacement and security review
-before real-account use. Use throwaway accounts. Debug access remains enabled.
+The crypto sources use Mbed TLS 3.6.6 LTS, configured narrowly for P-256 and
+SHA-256. The dependency upgrade does not replace a full security review; use
+throwaway accounts. Debug access remains enabled.
 The USB VID/PID is inherited for this lab and is not an allocation for distribution.
 
 ## Verification

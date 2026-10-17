@@ -7,8 +7,8 @@ license.
 - The project started from [avivgr/stm32-u2f](https://github.com/avivgr/stm32-u2f),
   distributed under Apache License 2.0. Its contributors and notices are
   acknowledged in the README.
-- mbed TLS files in `vendor/mbedtls/` are licensed under Apache License 2.0;
-  see `vendor/mbedtls/LICENSE`.
+- mbed TLS 3.6.6 files in `vendor/mbedtls/` are dual-licensed under Apache
+  License 2.0 or GPL 2.0-or-later; see `vendor/mbedtls/LICENSE`.
 - STMicroelectronics files in `vendor/st/hal/` and `vendor/st/usb/` contain
   their applicable ST license notices in the source headers, including the
   MCD-ST Liberty SW License Agreement V2. Retain those headers and consult the

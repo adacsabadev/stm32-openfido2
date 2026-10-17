@@ -20,6 +20,9 @@ for line in subprocess.check_output(["arm-none-eabi-nm", "-n", str(BUILD_DIR/"st
     if len(fields) == 3:
         symbols[fields[2]] = int(fields[0], 16)
 uc = Uc(UC_ARCH_ARM, UC_MODE_THUMB)
+from unicorn.arm_const import UC_ARM_REG_C1_C0_2, UC_ARM_REG_FPEXC
+uc.reg_write(UC_ARM_REG_C1_C0_2, 0xF << 20)
+uc.reg_write(UC_ARM_REG_FPEXC, 0x40000000)
 uc.mem_map(0x08000000, 0x100000)
 uc.mem_map(0x20000000, 0x20000)
 uc.mem_map(0x40023000, 0x1000)
@@ -27,6 +30,7 @@ uc.mem_write(0x40023c10,struct.pack("<I",0x80000000))
 uc.mem_write(0x08000000, (BUILD_DIR/"stm32-openfido2.bin").read_bytes())
 uc.mem_write(symbols["_sdata"], bytes(uc.mem_read(symbols["_etext"], symbols["_edata"]-symbols["_sdata"])))
 STOP = 0x080ff000
+EMU_INSTRUCTION_LIMIT = 500_000_000
 
 def hook(machine, address, size, data):
     if address == STOP:
@@ -46,7 +50,7 @@ def call(name, *args):
         uc.reg_write(reg, value)
     uc.reg_write(UC_ARM_REG_SP, 0x2001e000)
     uc.reg_write(UC_ARM_REG_LR, STOP|1)
-    uc.emu_start(symbols[name]|1, STOP+2, count=100_000_000)
+    uc.emu_start(symbols[name]|1, STOP+2, count=EMU_INSTRUCTION_LIMIT)
     return uc.reg_read(UC_ARM_REG_R0)
 
 # cb_view is a two-word struct, passed in R0/R1 under ARM AAPCS.
@@ -77,7 +81,7 @@ for reg,value in zip((UC_ARM_REG_R0,UC_ARM_REG_R1,UC_ARM_REG_R2,UC_ARM_REG_R3),(
 uc.reg_write(UC_ARM_REG_SP,0x2001e000)
 uc.mem_write(0x2001e000,struct.pack("<I",slen))
 uc.reg_write(UC_ARM_REG_LR,STOP|1)
-uc.emu_start(symbols["crypto_sign"]|1,STOP+2,count=100_000_000)
+uc.emu_start(symbols["crypto_sign"]|1,STOP+2,count=EMU_INSTRUCTION_LIMIT)
 assert uc.reg_read(UC_ARM_REG_R0)==1
 size=struct.unpack("<I",uc.mem_read(slen,4))[0]
 signature=bytes(uc.mem_read(sig,size))
