@@ -204,6 +204,9 @@ assert info[4]["uv"] is True and info[4]["clientPin"] is True
 agreement=command(6,{1:1,2:2})[1]
 host_private=ec.generate_private_key(ec.SECP256R1())
 host_public=host_private.public_key().public_numbers()
+host_key_agreement={1:2,3:-25,-1:1,
+                    -2:host_public.x.to_bytes(32,"big"),
+                    -3:host_public.y.to_bytes(32,"big")}
 device_public=ec.EllipticCurvePublicNumbers(
     int.from_bytes(agreement[-2],"big"),int.from_bytes(agreement[-3],"big"),ec.SECP256R1()
 ).public_key()
@@ -213,7 +216,7 @@ def aes_cbc(encrypt,data):
     operation=Cipher(algorithms.AES(shared),modes.CBC(bytes(16))).encryptor() if encrypt else Cipher(algorithms.AES(shared),modes.CBC(bytes(16))).decryptor()
     return operation.update(data)+operation.finalize()
 encrypted_pin_hash=aes_cbc(True,pin_hash)
-token_reply=command(6,{1:1,2:5,3:agreement,6:encrypted_pin_hash})
+token_reply=command(6,{1:1,2:5,3:host_key_agreement,6:encrypted_pin_hash})
 token=aes_cbc(False,token_reply[2])
 challenge=os.urandom(32)
 pin_auth=__import__("hmac").new(token,challenge,"sha256").digest()[:16]
