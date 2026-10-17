@@ -35,9 +35,11 @@ while ($true) {
                     }
                 } elseif (-not [char]::IsControl($key.KeyChar)) {
                     [void]$commandLine.Append($key.KeyChar)
-                    if ($commandLine.ToString().StartsWith('pin set ', [System.StringComparison]::OrdinalIgnoreCase)) {
-                        if ($commandLine.Length -gt 8) { Write-Host -NoNewline '*' }
-                        else { Write-Host -NoNewline $key.KeyChar }
+                    $typed = $commandLine.ToString()
+                    if ($typed.StartsWith('pin set ', [System.StringComparison]::OrdinalIgnoreCase)) {
+                        Write-Host -NoNewline '*'
+                    } elseif ($typed.StartsWith('pin change ', [System.StringComparison]::OrdinalIgnoreCase)) {
+                        Write-Host -NoNewline '*'
                     } else {
                         Write-Host -NoNewline $key.KeyChar
                     }

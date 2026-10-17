@@ -43,10 +43,11 @@ for FIDO2 operation.
 - Fresh blue USER B1/PA0 press, 30 ms debounce and 30-second presence timeout.
 - Green success, red failure, orange presence prompt, blue HID activity.
 - CDC diagnostic logs, including complete CTAPHID request/response payloads in
-  hexadecimal. Dumps may contain credential IDs, user data, challenges and
-  PIN-protocol ciphertext.
-- CDC debug console commands: `help`, `status`, metadata-only `keys list`,
-  `pin status` and `pin set`.
+  hexadecimal, named keepalive states, console command categories and flash
+  operation addresses/status registers. Dumps may contain credential IDs,
+  user data, challenges and PIN-protocol ciphertext.
+- CDC debug console commands for listing, deleting, restoring, changing the
+  discoverability of and compacting credentials, plus PIN setup/change/delete.
 - Append-only flash credentials and monotonically increasing per-credential
   assertion counters; commit/checksum validation on load.
 
@@ -69,13 +70,21 @@ enabled (or omitted) continue to require a fresh physical button press.
 Windows currently assigns CDC COM4. Open it with 115200/8N1, no flow control,
 DTR enabled. The baud setting is metadata for USB CDC.
 The CDC console accepts CR/LF-terminated `help`, `status`, `keys list`,
-`pin status` and `pin set <4-63 digit PIN>` commands. Set the PIN before
+`keys delete <id8> <rp8>`, `keys undelete <id8> <rp8>`,
+`keys discoverable <id8> <rp8> on|off`, `keys erase-all confirm`,
+`keys compact confirm`, `pin status`, `pin set <4-63 digits>`,
+`pin change <old> <new>` and `pin delete confirm`. The `id8` and `rp8`
+arguments are the eight-hex-character ID and RP fingerprints shown by
+`keys list`; ambiguous fingerprint pairs are rejected. Set the PIN before
 connecting the authenticator to the browser; enter that PIN when prompted.
 User presence still requires the blue button. Key listing shows only short
 credential-ID/RP-hash fingerprints, assertion counters, and discoverable status;
 it never outputs private keys or user handles. The serial watcher masks the PIN
 on screen and excludes commands typed by the user from the capture file. The
 protocol dump does not include the plaintext PIN or private credential keys.
+Console logs identify commands by category without recording PIN arguments;
+flash logs report operation ranges and controller status without logging
+programmed data.
 Use a test relying party that accepts a roaming security key. When orange
 blinks, release and press the blue USER button. Black is RESET.
 After registration, try authentication with the same test account, then reset
@@ -94,10 +103,22 @@ GetAssertion success: signature and counter persisted
 
 ## Flash storage and development security
 
+Per-key deletion appends a tombstone, immediately hiding the key from the
+authenticator while leaving its old bytes in sector 11 until compaction or
+erase-all. Undelete restores the most recent pre-deletion record. The
+`keys compact confirm` command snapshots sector 11 into sector 9 before
+rewriting live credentials; boot recovery restores the snapshot if power fails
+mid-compaction.
+`keys erase-all confirm` erases sector 11 but leaves the PIN in sector 10
+unchanged. A non-discoverable credential can only be made discoverable if a
+user handle for it is retained; otherwise it must be re-enrolled.
+
 The application linker is limited to 768 KiB. Sector 10, addresses
 0x080C0000..0x080DFFFF, stores the PIN verifier and is erased only when replacing
-the PIN. Sector 11, addresses 0x080E0000..0x080FFFFF, is reserved for the
-credential journal. Each credential record is 144 bytes. A successful
+the PIN. Sector 9, addresses 0x080A0000..0x080BFFFF, is reserved as temporary
+compaction snapshot storage and is cleared after completion or recovery.
+Sector 11, addresses 0x080E0000..0x080FFFFF, is reserved for the credential
+journal. Each credential record is 144 bytes. A successful
 registration or assertion appends a record. The journal
 has 910 complete slots; when full, operations fail instead of erasing credentials.
 An interrupted write is skipped on the next append. Counter records commit before

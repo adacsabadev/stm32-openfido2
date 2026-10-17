@@ -12,8 +12,20 @@ typedef struct {
 typedef struct {
  uint8_t id[32],rp[32];
  uint32_t counter;
- bool discoverable;
+ bool discoverable,deleted;
 } credential_summary;
+typedef enum {
+ CREDENTIAL_OK,
+ CREDENTIAL_NOT_FOUND,
+ CREDENTIAL_AMBIGUOUS,
+ CREDENTIAL_NO_USER_HANDLE,
+ CREDENTIAL_NO_SPACE,
+ CREDENTIAL_FLASH_ERROR
+} credential_result;
+typedef struct {
+ uint32_t active,deleted,used_slots,free_slots;
+} credential_journal_stats;
+bool credential_storage_init(void);
 bool credential_lookup(const uint8_t id[32],const uint8_t rp[32],credential*out);
 bool credential_lookup_resident(const uint8_t rp[32],credential*out,
                                 uint8_t user_id[64],uint32_t*user_id_len);
@@ -22,6 +34,13 @@ bool credential_save_resident(credential*c,const uint8_t*user_id,uint32_t user_i
 bool credential_room_for(uint32_t slots);
 uint32_t credential_list_count(void);
 bool credential_list_get(uint32_t index,credential_summary*out);
+void credential_get_journal_stats(credential_journal_stats*out);
+credential_result credential_delete(const uint8_t id_prefix[4],const uint8_t rp_prefix[4]);
+credential_result credential_undelete(const uint8_t id_prefix[4],const uint8_t rp_prefix[4]);
+credential_result credential_set_discoverable(const uint8_t id_prefix[4],
+                                              const uint8_t rp_prefix[4],bool enabled);
+bool credential_erase_all(void);
+bool credential_compact(void);
 int crypto_random(void *ctx,uint8_t*out,size_t n);
 void crypto_hash(const void*p,size_t n,uint8_t out[32]);
 bool crypto_generate(credential*c,uint8_t x[32],uint8_t y[32]);

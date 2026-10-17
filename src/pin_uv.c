@@ -1,5 +1,6 @@
 #include "pin_uv.h"
 #include "credential.h"
+#include "log.h"
 #include "stm32f4xx_hal.h"
 #include "stm32f4xx_hal_flash_ex.h"
 #include "mbedtls/aes.h"
@@ -28,8 +29,31 @@ static bool private_key_ready;
 static bool token_ready;
 static uint8_t pin_token[32];
 
+static void pin_flash_log_hex(const char*label,uint32_t value){
+ static const char digits[]="0123456789ABCDEF";
+ char line[64];size_t used=0;
+ while(*label&&used<sizeof line-13u)line[used++]=*label++;
+ line[used++]='0';line[used++]='x';
+ for(int shift=28;shift>=0;shift-=4)line[used++]=digits[(value>>shift)&15u];
+ line[used++]='\r';line[used++]='\n';line[used]=0;log_puts(line);
+}
+
+static void pin_flash_log_number(const char*label,uint32_t value){
+ char line[64];size_t used=0;
+ while(*label&&used<sizeof line-13u)line[used++]=*label++;
+ char digits[10];size_t count=0;
+ do{digits[count++]=(char)('0'+value%10u);value/=10u;}while(value);
+ while(count)line[used++]=digits[--count];
+ line[used++]='\r';line[used++]='\n';line[used]=0;log_puts(line);
+}
+
 static bool erase_pin_sector(void){
- if(FLASH_WaitForLastOperation(50000u)!=HAL_OK)return false;
+ log_puts("PIN flash erase begin: sector 10 address 0x080C0000\r\n");
+ HAL_StatusTypeDef ready=FLASH_WaitForLastOperation(50000u);
+ if(ready!=HAL_OK){
+  pin_flash_log_number("PIN flash erase pre-wait status=",ready);
+  pin_flash_log_hex("PIN flash status register=",FLASH->SR);return false;
+ }
  __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP|FLASH_FLAG_OPERR|FLASH_FLAG_WRPERR|
                         FLASH_FLAG_PGAERR|FLASH_FLAG_PGPERR|FLASH_FLAG_PGSERR);
  CLEAR_BIT(FLASH->CR,FLASH_CR_PSIZE);
@@ -39,7 +63,12 @@ static bool erase_pin_sector(void){
  SET_BIT(FLASH->CR,FLASH_CR_STRT);
  HAL_StatusTypeDef status=FLASH_WaitForLastOperation(50000u);
  CLEAR_BIT(FLASH->CR,FLASH_CR_SER|FLASH_CR_SNB);
- if(status!=HAL_OK)return false;
+ if(status!=HAL_OK){
+  pin_flash_log_number("PIN flash erase failed status=",status);
+  pin_flash_log_hex("PIN flash status register=",FLASH->SR);
+  pin_flash_log_hex("PIN flash control register=",FLASH->CR);return false;
+ }
+ log_puts("PIN flash erase complete: sector 10\r\n");
  uint32_t cache=FLASH->ACR&(FLASH_ACR_ICEN|FLASH_ACR_DCEN);
  __HAL_FLASH_INSTRUCTION_CACHE_DISABLE();__HAL_FLASH_DATA_CACHE_DISABLE();
  __HAL_FLASH_INSTRUCTION_CACHE_RESET();__HAL_FLASH_DATA_CACHE_RESET();
@@ -70,14 +99,27 @@ bool pin_uv_set_pin_hash(const uint8_t hash[16]){
  memcpy(record.pin_hash,hash,sizeof record.pin_hash);
  record.commit=PIN_RECORD_COMMIT;
  crypto_hash(&record,offsetof(pin_record,digest),record.digest);
- if(HAL_FLASH_Unlock()!=HAL_OK)return false;
+ log_puts("PIN verifier update begin: address 0x080C0000 bytes=56\r\n");
+ HAL_StatusTypeDef unlock=HAL_FLASH_Unlock();
+ if(unlock!=HAL_OK){
+  pin_flash_log_number("PIN flash unlock failed status=",unlock);
+  pin_flash_log_hex("PIN flash control register=",FLASH->CR);return false;
+ }
  bool ok=erase_pin_sector();
  const uint32_t *words=(const uint32_t*)&record;
- for(size_t i=0;ok&&i<sizeof record/4;i++)
-  ok=HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD,PIN_FLASH_ADDRESS+(uint32_t)i*4,words[i])==HAL_OK;
+ for(size_t i=0;ok&&i<sizeof record/4;i++){
+  uint32_t address=PIN_FLASH_ADDRESS+(uint32_t)i*4;
+  HAL_StatusTypeDef status=HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD,address,words[i]);
+  if(status!=HAL_OK){
+   pin_flash_log_hex("PIN flash program failed address=",address);
+   pin_flash_log_number("PIN flash program status=",status);
+   pin_flash_log_hex("PIN flash status register=",FLASH->SR);ok=false;
+  }
+ }
  HAL_FLASH_Lock();
  pin_record verify;
  ok=ok&&record_read(&verify)&&!memcmp(verify.pin_hash,hash,16);
+ log_puts(ok?"PIN verifier update verified\r\n":"PIN verifier update failed verification\r\n");
  memset(&record,0,sizeof record);memset(&verify,0,sizeof verify);
  return ok;
 }
@@ -91,6 +133,33 @@ bool pin_uv_set_from_console(const uint8_t *pin,size_t length){
  if(ok)pin_uv_clear_token();
  memset(hash,0,sizeof hash);
  return ok;
+}
+
+bool pin_uv_change_from_console(const uint8_t *old_pin,size_t old_length,
+                                const uint8_t *new_pin,size_t new_length){
+ if(!old_pin||old_length<4||old_length>63||!new_pin||new_length<4||new_length>63)return false;
+ for(size_t i=0;i<old_length;i++)if(old_pin[i]<'0'||old_pin[i]>'9')return false;
+ for(size_t i=0;i<new_length;i++)if(new_pin[i]<'0'||new_pin[i]>'9')return false;
+ uint8_t old_hash[32];crypto_hash(old_pin,old_length,old_hash);
+ bool matches=pin_uv_check_pin_hash(old_hash);
+ memset(old_hash,0,sizeof old_hash);
+ return matches&&pin_uv_set_from_console(new_pin,new_length);
+}
+
+bool pin_uv_delete(void){
+ log_puts("PIN deletion begin\r\n");
+ HAL_StatusTypeDef unlock=HAL_FLASH_Unlock();
+ if(unlock!=HAL_OK){
+  pin_flash_log_number("PIN flash unlock failed status=",unlock);
+  pin_flash_log_hex("PIN flash control register=",FLASH->CR);return false;
+ }
+ bool ok=erase_pin_sector();
+ HAL_FLASH_Lock();
+ pin_uv_clear_token();
+ if(private_key_ready){mbedtls_mpi_free(&private_key);private_key_ready=false;}
+ bool deleted=ok&&!pin_uv_configured();
+ log_puts(deleted?"PIN deletion complete\r\n":"PIN deletion failed\r\n");
+ return deleted;
 }
 
 bool pin_uv_get_key_agreement(uint8_t x[32],uint8_t y[32]){

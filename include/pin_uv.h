@@ -5,6 +5,9 @@
 
 bool pin_uv_configured(void);
 bool pin_uv_set_from_console(const uint8_t *pin, size_t length);
+bool pin_uv_change_from_console(const uint8_t *old_pin,size_t old_length,
+                                const uint8_t *new_pin,size_t new_length);
+bool pin_uv_delete(void);
 bool pin_uv_get_key_agreement(uint8_t x[32], uint8_t y[32]);
 bool pin_uv_derive_shared_secret(const uint8_t x[32], const uint8_t y[32],
                                 uint8_t shared_secret[32]);

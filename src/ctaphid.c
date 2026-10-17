@@ -48,7 +48,9 @@ static void log_command(uint8_t cmd){
  case WINK:log_puts("WINK");break;
  case CBOR:log_puts("CBOR");break;
  case CANCEL:log_puts("CANCEL");break;
- default:log_puts("unknown 0x");log_byte(cmd);break;
+ case KEEPALIVE:log_puts("KEEPALIVE");break;
+ case ERROR:log_puts("ERROR");break;
+ default:log_puts("unsupported 0x");log_byte(cmd);break;
  }
 }
 static void log_payload(const char*direction,const uint8_t*p,uint16_t n){
@@ -114,13 +116,13 @@ void ctaphid_receive(const uint8_t f[64]){
   uint16_t n=((uint16_t)f[5]<<8)|f[6];if(n!=8){log_puts("CTAPHID INIT rejected: nonce length\r\n");err(cid,3);return;}
   uint32_t assigned=cid;
   if(cid==0xffffffffu){if(!allocate_channel(&assigned)){log_puts("CTAPHID INIT rejected: no idle channel available\r\n");err(cid,6);return;}}
-  else if(!known(cid)){log_puts("CTAPHID INIT rejected: unknown channel\r\n");err(cid,0x0b);return;}
+  else if(!known(cid)){log_puts("CTAPHID INIT rejected: unallocated channel\r\n");err(cid,0x0b);return;}
   if(rx.active&&rx.cid==cid)rx.active=false;
   if(pending&&pending_cid==cid){ctap2_cancel();pending=false;}
   uint8_t init[17];memcpy(init,f+7,8);cidput(init+8,assigned);init[12]=2;init[13]=1;init[14]=0;init[15]=0;init[16]=0x0c;
   send(cid,INIT,init,17);log_puts("CTAPHID INIT channel ready\r\n");return;
  }
- if(!known(cid)){log_puts("CTAPHID rejected: unknown channel\r\n");err(cid,0x0b);return;}
+ if(!known(cid)){log_puts("CTAPHID rejected: unallocated channel\r\n");err(cid,0x0b);return;}
  if(cmd==CANCEL){
   if(f[5]||f[6]){log_puts("CTAPHID CANCEL rejected: nonzero length\r\n");err(cid,3);return;}
   if(pending&&pending_cid==cid){ctap2_cancel();pending=false;response[0]=0x2d;send(cid,CBOR,response,1);}

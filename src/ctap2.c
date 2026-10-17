@@ -127,7 +127,7 @@ static uint16_t client_pin_dispatch(cb_view root,uint8_t*out,uint16_t cap){
  log_puts("CTAP2 clientPIN subcommand=");
  log_puts(subcommand==1?"getRetries":subcommand==2?"getKeyAgreement":
           subcommand==3?"setPIN":subcommand==4?"changePIN":
-          subcommand==5?"getPINToken":"unknown");
+          subcommand==5?"getPINToken":"unsupported");
  log_puts(" status=0x");
  static const char hex[]="0123456789ABCDEF";
  char code[3]={hex[status>>4],hex[status&15u],0};log_puts(code);log_puts("\r\n");

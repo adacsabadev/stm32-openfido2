@@ -4,6 +4,7 @@ import pathlib
 import struct
 import subprocess
 import sys
+import zlib
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BUILD_DIR = pathlib.Path(os.environ.get("STM32_BUILD_DIR", ROOT / "build"))
 sys.path.insert(0, str(ROOT / "tools/python-deps"))
@@ -21,6 +22,8 @@ for line in subprocess.check_output(["arm-none-eabi-nm", "-n", str(BUILD_DIR/"st
 uc = Uc(UC_ARCH_ARM, UC_MODE_THUMB)
 uc.mem_map(0x08000000, 0x100000)
 uc.mem_map(0x20000000, 0x20000)
+uc.mem_map(0x40023000, 0x1000)
+uc.mem_write(0x40023c10,struct.pack("<I",0x80000000))
 uc.mem_write(0x08000000, (BUILD_DIR/"stm32-openfido2.bin").read_bytes())
 uc.mem_write(symbols["_sdata"], bytes(uc.mem_read(symbols["_etext"], symbols["_edata"]-symbols["_sdata"])))
 STOP = 0x080ff000
@@ -124,10 +127,31 @@ def services(machine,address,size,data):
         length=machine.reg_read(UC_ARM_REG_R1)
         hid_tx_reports.append(bytes(machine.mem_read(pointer,length)))
         machine.reg_write(UC_ARM_REG_R0,0)
+    elif address==symbols["HAL_FLASH_Unlock"]:
+        control=struct.unpack("<I",machine.mem_read(0x40023c10,4))[0]
+        machine.mem_write(0x40023c10,struct.pack("<I",control&~0x80000000))
+        machine.reg_write(UC_ARM_REG_R0,0)
+    elif address==symbols["HAL_FLASH_Lock"]:
+        control=struct.unpack("<I",machine.mem_read(0x40023c10,4))[0]
+        machine.mem_write(0x40023c10,struct.pack("<I",control|0x80000000))
+    elif address==symbols["HAL_FLASH_Program"]:
+        target=machine.reg_read(UC_ARM_REG_R1)
+        word=machine.reg_read(UC_ARM_REG_R2)
+        previous=struct.unpack("<I",machine.mem_read(target,4))[0]
+        machine.mem_write(target,struct.pack("<I",previous&word))
+        machine.reg_write(UC_ARM_REG_R0,0)
+    elif address==symbols["flash_erase_sector"]:
+        sector=machine.reg_read(UC_ARM_REG_R0)
+        start={9:0x080a0000,11:0x080e0000}[sector]
+        machine.mem_write(start,b"\xff"*0x20000)
+        machine.reg_write(UC_ARM_REG_R0,1)
+    elif address==symbols["erase_pin_sector"]:
+        machine.mem_write(0x080c0000,b"\xff"*0x20000)
+        machine.reg_write(UC_ARM_REG_R0,1)
     else:
         machine.reg_write(UC_ARM_REG_R0,0)
     machine.reg_write(UC_ARM_REG_PC,machine.reg_read(UC_ARM_REG_LR))
-for name in ("credential_save","credential_save_resident","presence_begin","presence_take","presence_cancel","indicators_result","log_puts","platform_millis","usb_fido_hid_write"):
+for name in ("credential_save","credential_save_resident","presence_begin","presence_take","presence_cancel","indicators_result","log_puts","platform_millis","usb_fido_hid_write","HAL_FLASH_Unlock","HAL_FLASH_Lock","HAL_FLASH_Program","flash_erase_sector","erase_pin_sector"):
     uc.hook_add(UC_HOOK_CODE,services,begin=symbols[name],end=symbols[name])
 def command(cmd,body):
     encoded=bytes([cmd])+cbor.encode(body)
@@ -265,3 +289,71 @@ evicted=ping_channel(channels[1])
 assert evicted[4]==0xbf and evicted[7]==0x0b
 assert ping_channel(channels[-1])[4]==0x81
 print("PASS: CTAPHID channel exhaustion evicts least-recently-used idle channel")
+
+# Mock a power cut after the original journal was erased, then verify that the
+# committed sector-9 snapshot restores every byte before normal startup.
+snapshot=bytes(uc.mem_read(0x080e0000,131040))
+uc.mem_write(0x080a0000,snapshot)
+crc=zlib.crc32(snapshot)
+actual_crc=call("journal_crc",0x080a0000)
+assert actual_crc==crc,(hex(actual_crc),hex(crc))
+uc.mem_write(0x080bffe0,struct.pack("<III",0x31504d43,crc,0x54494d43))
+uc.mem_write(0x080e0000,b"\0"*131040)
+assert call("credential_storage_init")==1
+assert bytes(uc.mem_read(0x080e0000,131040))==snapshot
+print("PASS: interrupted journal rewrite is recovered from sector-9 snapshot")
+uc.mem_write(0x080a0000,b"\0\0\0\0")
+assert call("credential_storage_init")==1
+assert bytes(uc.mem_read(0x080a0000,4))==b"\xff"*4
+assert bytes(uc.mem_read(0x080e0000,131040))==snapshot
+print("PASS: incomplete pre-commit snapshot is discarded without changing journal")
+
+rp_prefix=__import__("hashlib").sha256(b"stm32-lab.test").digest()[:4]
+id_prefix=cid[:4]
+uc.mem_write(0x20014300,id_prefix);uc.mem_write(0x20014304,rp_prefix)
+rp_hash=__import__("hashlib").sha256(b"stm32-lab.test").digest()
+uc.mem_write(0x20014800,cid);uc.mem_write(0x20014820,rp_hash)
+assert call("credential_delete",0x20014300,0x20014304)==0
+assert call("credential_lookup",0x20014800,0x20014820,0x20014400)==0
+call("credential_get_journal_stats",0x20014700)
+active,deleted,used,free=struct.unpack("<IIII",uc.mem_read(0x20014700,16))
+assert deleted==1 and used+free==910
+count=call("credential_list_count")
+summaries=[]
+for index in range(count):
+    assert call("credential_list_get",index,0x20014900)==1
+    summaries.append(bytes(uc.mem_read(0x20014900,70)))
+assert any(item[69] and item[:32]==cid and item[32:64]==rp_hash for item in summaries)
+assert call("credential_undelete",0x20014300,0x20014304)==0
+assert call("credential_lookup",0x20014800,0x20014820,0x20014400)==1
+assert call("credential_set_discoverable",0x20014300,0x20014304,0)==0
+assert call("credential_lookup_resident",0x20014820,0x20014400,0x20014500,0x20014600)==0
+assert call("credential_set_discoverable",0x20014300,0x20014304,1)==0
+assert call("credential_lookup_resident",0x20014820,0x20014400,0x20014500,0x20014600)==1
+assert call("credential_set_discoverable",0x20014300,0x20014304,0)==0
+stats=0x20014700
+call("credential_get_journal_stats",stats)
+active,deleted,used,free=struct.unpack("<IIII",uc.mem_read(stats,16))
+assert active>=2 and deleted==0 and used+free==910
+assert call("credential_compact")==1
+assert call("credential_lookup",0x20014800,0x20014820,0x20014400)==1
+assert call("credential_lookup_resident",0x20014820,0x20014400,0x20014500,0x20014600)==0
+call("credential_get_journal_stats",stats)
+active,deleted,used_after,free_after=struct.unpack("<IIII",uc.mem_read(stats,16))
+assert deleted==0 and used_after<used and used_after+free_after==910
+assert call("credential_set_discoverable",0x20014300,0x20014304,1)==0
+assert call("credential_lookup_resident",0x20014820,0x20014400,0x20014500,0x20014600)==1
+assert call("credential_erase_all")==1
+assert call("credential_lookup",0x20014800,0x20014820,0x20014400)==0
+assert call("pin_uv_configured")==1
+old_pin=b"123456"
+new_pin=b"654321"
+uc.mem_write(0x20014a00,old_pin);uc.mem_write(0x20014a20,new_pin)
+assert call("pin_uv_change_from_console",0x20014a00,len(old_pin),0x20014a20,len(new_pin))==1
+old_hash=__import__("hashlib").sha256(old_pin).digest()[:16]
+new_hash=__import__("hashlib").sha256(new_pin).digest()[:16]
+uc.mem_write(0x20014a40,old_hash);uc.mem_write(0x20014a60,new_hash)
+assert call("pin_uv_check_pin_hash",0x20014a40)==0
+assert call("pin_uv_check_pin_hash",0x20014a60)==1
+assert call("pin_uv_delete")==1 and call("pin_uv_configured")==0
+print("PASS: delete, undelete, discoverability toggle, compaction, erase-all, and PIN change/delete")

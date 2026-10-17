@@ -8,7 +8,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#define COMMAND_CAP 80u
+#define COMMAND_CAP 160u
 #define TX_LOW_WATER 256u
 
 static char command[COMMAND_CAP];
@@ -34,45 +34,157 @@ static void append_hex(char*out,uint32_t*used,const uint8_t*value,uint32_t lengt
 }
 
 static void print_key(uint32_t index){
- credential_summary key;char line[96];uint32_t used=0;
+ credential_summary key;char line[112];uint32_t used=0;
  if(!credential_list_get(index,&key))return;
  append_text(line,&used,"key id=");append_hex(line,&used,key.id,4);
  append_text(line,&used," rp=");append_hex(line,&used,key.rp,4);
+ append_text(line,&used,key.deleted?" state=deleted":" state=active");
  append_text(line,&used," counter=");append_u32(line,&used,key.counter);
- append_text(line,&used,key.discoverable?" discoverable=yes\r\n":" discoverable=no\r\n");
+ if(!key.deleted)append_text(line,&used,key.discoverable?" discoverable=yes\r\n":" discoverable=no\r\n");
+ else append_text(line,&used,"\r\n");
  line[used]=0;log_puts(line);
+}
+
+static int hex_value(char c){
+ if(c>='0'&&c<='9')return c-'0';
+ if(c>='a'&&c<='f')return c-'a'+10;
+ if(c>='A'&&c<='F')return c-'A'+10;
+ return -1;
+}
+
+static bool parse_hex4(const char*text,uint8_t bytes[4]){
+ for(uint32_t i=0;i<4;i++){
+  int high=hex_value(text[i*2]),low=hex_value(text[i*2+1]);
+  if(high<0||low<0)return false;
+  bytes[i]=(uint8_t)((high<<4)|low);
+ }
+ return true;
+}
+
+static bool parse_selector(const char*text,uint8_t id[4],uint8_t rp[4],
+                           const char**tail){
+ if(strlen(text)<17||text[8]!=' '||!parse_hex4(text,id)||!parse_hex4(text+9,rp))return false;
+ if(text[17]&&text[17]!=' ')return false;
+ *tail=text+17;
+ return true;
+}
+
+static void report_credential_result(credential_result result){
+ switch(result){
+ case CREDENTIAL_OK:log_puts("OK\r\n");break;
+ case CREDENTIAL_NOT_FOUND:log_puts("ERR matching credential state not found\r\n");break;
+ case CREDENTIAL_AMBIGUOUS:log_puts("ERR fingerprint pair is ambiguous; use distinct fingerprints\r\n");break;
+ case CREDENTIAL_NO_USER_HANDLE:log_puts("ERR no stored user handle; re-enroll to enable discoverability\r\n");break;
+ case CREDENTIAL_NO_SPACE:log_puts("ERR journal has insufficient free slots; run keys compact confirm\r\n");break;
+ case CREDENTIAL_FLASH_ERROR:log_puts("ERR flash operation failed\r\n");break;
+ }
+}
+
+static bool valid_pin(const char*pin,size_t length){
+ if(length<4||length>63)return false;
+ for(size_t i=0;i<length;i++)if(pin[i]<'0'||pin[i]>'9')return false;
+ return true;
+}
+
+static const char*command_name(const char*text){
+ if(!strcmp(text,"help"))return "help";
+ if(!strcmp(text,"status"))return "status";
+ if(!strcmp(text,"keys list"))return "keys list";
+ if(!strcmp(text,"keys erase-all confirm"))return "keys erase-all";
+ if(!strcmp(text,"keys compact confirm"))return "keys compact";
+ if(!strcmp(text,"pin status"))return "pin status";
+ if(!strcmp(text,"pin delete confirm"))return "pin delete";
+ if(!strncmp(text,"keys delete ",12))return "keys delete";
+ if(!strncmp(text,"keys undelete ",14))return "keys undelete";
+ if(!strncmp(text,"keys discoverable ",18))return "keys discoverable";
+ if(!strncmp(text,"pin set ",8))return "pin set";
+ if(!strncmp(text,"pin change ",11))return "pin change";
+ return "unsupported";
 }
 
 static void execute_command(void){
  command[command_length]=0;
+ listing=false;
  if(!command_length)return;
+ const char*name=command_name(command);
+ log_puts("Console command begin: ");log_puts(name);log_puts("\r\n");
  if(!strcmp(command,"help")){
-  log_puts("Commands: help, status, keys list, pin status, pin set <4-63 digit PIN>\r\n");
+  log_puts("help\r\nstatus\r\nkeys list\r\n");
+  log_puts("keys delete <id8> <rp8>\r\nkeys undelete <id8> <rp8>\r\n");
+  log_puts("keys discoverable <id8> <rp8> on|off\r\n");
+  log_puts("keys erase-all confirm\r\nkeys compact confirm\r\n");
+  log_puts("pin status\r\npin set <4-63 digits>\r\n");
+  log_puts("pin change <old> <new>\r\npin delete confirm\r\n");
  }else if(!strcmp(command,"pin status")){
   log_puts(pin_uv_configured()?"PIN is configured\r\n":"PIN is not configured\r\n");
  }else if(command_length>=8&&!memcmp(command,"pin set ",8)){
-  if(pin_uv_set_from_console((const uint8_t*)command+8,command_length-8))
-   log_puts("PIN verifier stored\r\n");
-  else log_puts("ERR PIN must contain 4-63 ASCII digits\r\n");
+  size_t length=command_length-8;
+  if(!valid_pin(command+8,length))log_puts("ERR PIN must contain 4-63 ASCII digits\r\n");
+  else if(pin_uv_configured())log_puts("ERR PIN already set; use pin change <old> <new>\r\n");
+  else if(pin_uv_set_from_console((const uint8_t*)command+8,length))log_puts("PIN verifier stored\r\n");
+  else log_puts("ERR PIN verifier could not be stored\r\n");
+ }else if(command_length>11&&!memcmp(command,"pin change ",11)){
+  char*old_pin=command+11;char*separator=strchr(old_pin,' ');
+  if(!separator||strchr(separator+1,' '))log_puts("ERR use pin change <old> <new>\r\n");
+  else{
+   size_t old_length=(size_t)(separator-old_pin),new_length=strlen(separator+1);
+   *separator=0;
+   if(!valid_pin(old_pin,old_length)||!valid_pin(separator+1,new_length))
+    log_puts("ERR old and new PINs must each contain 4-63 ASCII digits\r\n");
+   else if(!pin_uv_configured())log_puts("ERR PIN is not configured; use pin set <new>\r\n");
+   else if(pin_uv_change_from_console((const uint8_t*)old_pin,old_length,
+                                     (const uint8_t*)separator+1,new_length))
+    log_puts("PIN updated\r\n");
+   else log_puts("ERR old PIN incorrect or new PIN could not be stored\r\n");
+  }
+ }else if(!strcmp(command,"pin delete confirm")){
+  if(!pin_uv_configured())log_puts("PIN is not configured\r\n");
+  else if(pin_uv_delete())log_puts("PIN deleted\r\n");
+  else log_puts("ERR PIN erase failed\r\n");
  }else if(!strcmp(command,"status")){
-  char line[128];uint32_t used=0;
+  credential_journal_stats stats;credential_get_journal_stats(&stats);
+  char line[192];uint32_t used=0;
   append_text(line,&used,"uptime_ms=");append_u32(line,&used,platform_millis());
-  append_text(line,&used," keys=");append_u32(line,&used,credential_list_count());
+  append_text(line,&used," keys_active=");append_u32(line,&used,stats.active);
+  append_text(line,&used," keys_deleted=");append_u32(line,&used,stats.deleted);
+  append_text(line,&used," journal_used_slots=");append_u32(line,&used,stats.used_slots);
+  append_text(line,&used," journal_free_slots=");append_u32(line,&used,stats.free_slots);
   append_text(line,&used," cdc_rx_dropped=");append_u32(line,&used,usb_cdc_rx_dropped());
   append_text(line,&used," cdc_tx_dropped=");append_u32(line,&used,usb_cdc_tx_dropped());
   append_text(line,&used,"\r\n");line[used]=0;log_puts(line);
  }else if(!strcmp(command,"keys list")){
   list_index=0;list_count=credential_list_count();listing=true;
-  if(!list_count){log_puts("No stored credentials\r\n");listing=false;}
+  if(!list_count){log_puts("No credential records\r\n");listing=false;}
   else{
-   char line[48];uint32_t used=0;
-   append_text(line,&used,"Stored credentials: ");append_u32(line,&used,list_count);
-   append_text(line,&used," (id and RP are 4-byte fingerprints)\r\n");
+   char line[72];uint32_t used=0;
+   append_text(line,&used,"Credential records: ");append_u32(line,&used,list_count);
+   append_text(line,&used,"; id/rp are 4-byte fingerprints\r\n");
    line[used]=0;log_puts(line);
   }
+ }else if(!strcmp(command,"keys erase-all confirm")){
+  if(credential_erase_all())log_puts("All credentials erased; PIN unchanged\r\n");
+  else log_puts("ERR credential-sector erase failed\r\n");
+ }else if(!strcmp(command,"keys compact confirm")){
+  if(credential_compact())log_puts("Credential journal compacted\r\n");
+  else log_puts("ERR compaction failed; recovery snapshot retained if needed; reboot and check status\r\n");
+ }else if(command_length>12&&!memcmp(command,"keys delete ",12)){
+  uint8_t id[4],rp[4];const char*tail;
+  if(!parse_selector(command+12,id,rp,&tail)||*tail)log_puts("ERR use keys delete <id8> <rp8>\r\n");
+  else report_credential_result(credential_delete(id,rp));
+ }else if(command_length>14&&!memcmp(command,"keys undelete ",14)){
+  uint8_t id[4],rp[4];const char*tail;
+  if(!parse_selector(command+14,id,rp,&tail)||*tail)log_puts("ERR use keys undelete <id8> <rp8>\r\n");
+  else report_credential_result(credential_undelete(id,rp));
+ }else if(command_length>18&&!memcmp(command,"keys discoverable ",18)){
+  uint8_t id[4],rp[4];const char*tail;
+  if(!parse_selector(command+18,id,rp,&tail)||
+     (strcmp(tail," on")&&strcmp(tail," off")))
+   log_puts("ERR use keys discoverable <id8> <rp8> on|off\r\n");
+  else report_credential_result(credential_set_discoverable(id,rp,!strcmp(tail," on")));
  }else{
-  log_puts("ERR unknown command; send help\r\n");
+  log_puts("ERR unsupported command; send help\r\n");
  }
+ log_puts("Console command end: ");log_puts(name);log_puts("\r\n");
  memset(command,0,sizeof command);
  command_length=0;
 }
