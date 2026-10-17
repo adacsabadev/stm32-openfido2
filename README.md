@@ -118,8 +118,9 @@ tests/verify_arm.py executes compiled ARM code under Unicorn and independently
 verifies public keys, DER signatures, packed attestation and assertion counters
 using Python cryptography/python-fido2. It also checks CBOR truncation, duplicate
 keys, non-minimal values, oversized lengths, and CTAP2 PIN protocol 1 key
-agreement, PIN-token issuance and UV-authorized registration. Randomness,
-presence and flash commits are substituted only in this emulator test.
+agreement, PIN-token issuance, UV-authorized registration and CTAPHID channel
+churn with least-recently-used idle-channel eviction. Randomness, presence and
+flash commits are substituted only in this emulator test.
 
 tests/hardware_ctap.py supports info, register, assert and discoverable. Registration
 and assertion require real blue-button presses. It saves the credential ID, user

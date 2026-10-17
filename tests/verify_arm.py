@@ -87,6 +87,7 @@ print("Boundary: emulator supplies randomness; physical RNG and flash persistenc
 from unicorn.arm_const import UC_ARM_REG_PC
 flash_cursor=0x080e0000
 presence_take_count=0
+hid_tx_reports=[]
 uc.mem_write(flash_cursor,b"\xff"*0x20000)
 def services(machine,address,size,data):
     global flash_cursor,presence_take_count
@@ -118,10 +119,15 @@ def services(machine,address,size,data):
     elif address==symbols["presence_take"]:
         presence_take_count+=1
         machine.reg_write(UC_ARM_REG_R0,1)
+    elif address==symbols["usb_fido_hid_write"]:
+        pointer=machine.reg_read(UC_ARM_REG_R0)
+        length=machine.reg_read(UC_ARM_REG_R1)
+        hid_tx_reports.append(bytes(machine.mem_read(pointer,length)))
+        machine.reg_write(UC_ARM_REG_R0,0)
     else:
         machine.reg_write(UC_ARM_REG_R0,0)
     machine.reg_write(UC_ARM_REG_PC,machine.reg_read(UC_ARM_REG_LR))
-for name in ("credential_save","credential_save_resident","presence_begin","presence_take","presence_cancel","indicators_result","log_puts","platform_millis"):
+for name in ("credential_save","credential_save_resident","presence_begin","presence_take","presence_cancel","indicators_result","log_puts","platform_millis","usb_fido_hid_write"):
     uc.hook_add(UC_HOOK_CODE,services,begin=symbols[name],end=symbols[name])
 def command(cmd,body):
     encoded=bytes([cmd])+cbor.encode(body)
@@ -224,3 +230,38 @@ registration=command(1,{1:challenge,2:{"id":"pin-uv.test"},3:{"id":b"uv"},4:[{"t
 auth=AuthenticatorData(registration[2])
 assert auth.is_user_verified() and auth.is_user_present()
 print("PASS: CTAP PIN protocol 1 ECDH, AES-CBC, token HMAC, and UV-authenticated registration")
+
+# Exercise CTAPHID channel churn and ensure recent clients survive LRU eviction.
+def hid_send(frame):
+    uc.mem_write(0x20015000,bytes(frame))
+    hid_tx_reports.clear()
+    call("ctaphid_receive",0x20015000)
+    assert hid_tx_reports
+    return hid_tx_reports[-1]
+def init_channel(nonce):
+    frame=bytearray(64)
+    frame[:4]=b"\xff"*4
+    frame[4]=0x86
+    frame[6]=8
+    frame[7:15]=nonce
+    response=hid_send(frame)
+    assert response[4]==0x86 and response[7:15]==nonce
+    return int.from_bytes(response[15:19],"big")
+def ping_channel(cid):
+    frame=bytearray(64)
+    frame[:4]=cid.to_bytes(4,"big")
+    frame[4]=0x81
+    frame[6]=1
+    frame[7]=0x5a
+    return hid_send(frame)
+call("ctaphid_init")
+channels=[init_channel(i.to_bytes(8,"big")) for i in range(8)]
+assert len(set(channels))==8
+assert ping_channel(channels[0])[4]==0x81
+new_channel=init_channel(b"freshcid")
+assert new_channel not in channels
+assert ping_channel(channels[0])[4]==0x81
+evicted=ping_channel(channels[1])
+assert evicted[4]==0xbf and evicted[7]==0x0b
+assert ping_channel(channels[-1])[4]==0x81
+print("PASS: CTAPHID channel exhaustion evicts least-recently-used idle channel")
