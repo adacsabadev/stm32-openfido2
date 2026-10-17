@@ -22,7 +22,7 @@ void SysTick_Handler(void){++ticks;HAL_IncTick();}
 static void clock_72mhz_usb48(void){
  RCC_AHB1ENR|=1u<<28; PWR_CR|=3u<<14;
  RCC_CR|=1u<<16; while(!(RCC_CR&(1u<<17))){}
- RCC_PLLCFGR=4u|(72u<<6)|(0u<<16)|(1u<<22)|(3u<<24);
+ RCC_PLLCFGR=8u|(288u<<6)|(1u<<16)|(1u<<22)|(6u<<24);
  FLASH_ACR=(1u<<8)|(1u<<9)|(1u<<10)|2u;
  RCC_CFGR=(5u<<10); RCC_CR|=1u<<24; while(!(RCC_CR&(1u<<25))){}
  RCC_CFGR=(RCC_CFGR&~3u)|2u; while(((RCC_CFGR>>2)&3u)!=2u){}

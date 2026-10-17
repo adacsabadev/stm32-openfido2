@@ -14,12 +14,16 @@ from fido2.cose import ES256
 from fido2.ctap import CtapError
 
 mode=sys.argv[1] if len(sys.argv)>1 else "info"
-device=next(d for d in CtapHidDevice.list_devices() if d.descriptor.vid==0x0483 and d.descriptor.pid==0x5750)
+devices=[d for d in CtapHidDevice.list_devices() if d.descriptor.vid==0x0483 and d.descriptor.pid==0x5750]
+if not devices:
+    raise SystemExit("No accessible STM32 CTAP HID device found. On Windows, direct HID access may require an elevated terminal; browser WebAuthn access is separate.")
+device=devices[0]
 ctap=Ctap2(device)
 print("GetInfo:",ctap.info,flush=True)
 assert "FIDO_2_0" in ctap.info.versions
-assert not ctap.info.pin_uv_protocols
+assert ctap.info.pin_uv_protocols == [1]
 assert ctap.info.options.get("rk")
+assert ctap.info.options.get("uv") == ctap.info.options.get("clientPin")
 if mode=="info":
     device.close()
     sys.exit(0)

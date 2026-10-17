@@ -159,8 +159,8 @@ static uint16_t get_info(uint8_t*out,uint16_t cap){
  cb_num(&w,4); cb_head(&w,5,4);
  cb_text(&w,"rk");cb_head(&w,7,21);
  cb_text(&w,"up");cb_head(&w,7,21);
- cb_text(&w,"clientPin");cb_head(&w,7,configured?21:20);
  cb_text(&w,"uv");cb_head(&w,7,configured?21:20);
+ cb_text(&w,"clientPin");cb_head(&w,7,configured?21:20);
  cb_num(&w,5);cb_num(&w,1200);
  cb_num(&w,6);cb_head(&w,4,1);cb_num(&w,1);
  log_puts(configured?"CTAP2 GetInfo: ES256, discoverable credentials, PIN/UV enabled\r\n":"CTAP2 GetInfo: ES256, discoverable credentials, PIN not configured\r\n");

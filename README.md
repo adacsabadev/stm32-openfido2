@@ -4,6 +4,7 @@ STM32F407 FIDO2 authenticator with a USB serial development console.
 
 Target: STM32F4Discovery, STM32F407VGT6, 8 MHz HSE, 72 MHz CPU,
 48 MHz USB. USB OTG micro-AB carries composite FIDO HID and CDC ACM.
+The PLL uses HSE / 8 x 288, then divides by 4 for SYSCLK and by 6 for USB.
 ST-LINK is used for flashing. The active driver is ST HAL/PCD and
 the ST USB Device core; src/usb_otgfs.c is an inactive historical experiment.
 
@@ -155,7 +156,9 @@ flash commits are substituted only in this emulator test.
 tests/hardware_ctap.py supports info, register, assert and discoverable. Registration
 and assertion require real blue-button presses. It saves the credential ID, user
 handle, public key and observed counter in tests/results. Windows may deny direct access
-to the FIDO HID interface; browser WebAuthn remains the manual acceptance path.
+to the FIDO HID interface to unelevated processes; running this test from an
+elevated terminal may be required. This does not prevent browser WebAuthn access,
+which is mediated separately by Windows.
 
 Local test packages live in tools/python-deps (ignored by Git).
 Hardware RNG, actual flash writes, reset persistence and browser registration

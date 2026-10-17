@@ -164,7 +164,9 @@ def command(cmd,body):
     return cbor.decode(result[1:])
 uc.mem_write(0x20015000,b"\x04")
 info_len=call("ctap2_dispatch",0x20015000,1,0x20016000,1200)
-info=cbor.decode(bytes(uc.mem_read(0x20016000,info_len))[1:])
+info_response=bytes(uc.mem_read(0x20016000,info_len))
+info=cbor.decode(info_response[1:])
+assert cbor.encode(info)==info_response[1:]
 assert info[4]["rk"] is True
 assert info[4]["uv"] is False and info[4]["clientPin"] is False
 assert info[6]==[1]
@@ -229,7 +231,9 @@ pin_record=pin_prefix+__import__("hashlib").sha256(pin_prefix).digest()+struct.p
 uc.mem_write(0x080c0000,pin_record)
 uc.mem_write(0x20015000,b"\x04")
 info_len=call("ctap2_dispatch",0x20015000,1,0x20016000,1200)
-info=cbor.decode(bytes(uc.mem_read(0x20016000,info_len))[1:])
+info_response=bytes(uc.mem_read(0x20016000,info_len))
+info=cbor.decode(info_response[1:])
+assert cbor.encode(info)==info_response[1:]
 assert info[4]["uv"] is True and info[4]["clientPin"] is True
 agreement=command(6,{1:1,2:2})[1]
 host_private=ec.generate_private_key(ec.SECP256R1())
