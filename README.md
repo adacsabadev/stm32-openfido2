@@ -131,9 +131,10 @@ still need successful physical acceptance, separate from emulator results.
 
 ## Attribution and licensing
 
-Project authors: ACS and AI (Copilot). The project started from
-[avivgr/stm32-u2f](https://github.com/avivgr/stm32-u2f); special thanks to
-Ron Garret, avivgr, and all contributors to that project.
+Project authors: adacsabadev, Cody (ChatGPT), and Coop (Copilot).
+
+The project started from [avivgr/stm32-u2f](https://github.com/avivgr/stm32-u2f);
+special thanks to Ron Garret, avivgr, and all contributors to that project.
 
 The project's original code is licensed under Apache License 2.0; see
 [LICENSE](./LICENSE). Third-party components retain their own licenses and
