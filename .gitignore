@@ -1,0 +1,11 @@
+/build/
+/build-*/
+/tools/python-deps/
+/tests/results/
+/logs/
+/.settings/
+*.elf
+*.bin
+*.hex
+*.map
+.vscode/.cmake/

@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "STM32F407: OpenOCD",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "openocd",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/stm32-openfido2",
+      "configFiles": ["board/stm32f4discovery.cfg"],
+      "runToEntryPoint": "main"
+    }
+  ]
+}

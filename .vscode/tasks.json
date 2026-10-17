@@ -1,0 +1,36 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "CMake configure",
+			"type": "shell",
+			"command": "cmake -S . -B build -G \"Unix Makefiles\" -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi.cmake",
+			"problemMatcher": []
+		},
+		{
+			"label": "Build firmware",
+			"type": "shell",
+			"command": "cmake --build build",
+			"dependsOn": "CMake configure",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": "$gcc"
+		},
+		{
+			"label": "COM4 serial console",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				".\\tools\\watch-com4.ps1"
+			],
+			"isBackground": true,
+			"problemMatcher": []
+		}
+	]
+}
